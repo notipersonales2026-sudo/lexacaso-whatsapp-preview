@@ -35,6 +35,9 @@ export interface Documento {
   tipo_mime: string | null
   tamano_bytes: number | null
   visible_cliente: boolean
+  remitente_id: string | null
+  mensaje_admin: string | null
+  consultado: boolean
   created_at: string
 }
 

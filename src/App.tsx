@@ -5,6 +5,7 @@ import ClientDashboard from './components/client/ClientDashboard'
 import AdminDashboard from './components/admin/AdminDashboard'
 import ClientCaseTracking from './components/client/ClientCaseTracking'
 import ClientProfile from './components/client/ClientProfile'
+import DocumentosRecibidos from './components/client/DocumentosRecibidos'
 import AdminExpedientes from './components/admin/AdminExpedientes'
 import AdminUsuarios from './components/admin/AdminUsuarios'
 import AdminConfig from './components/admin/AdminConfig'
@@ -14,6 +15,7 @@ type View =
   | 'client_dashboard'
   | 'client_tracking'
   | 'client_profile'
+  | 'client_documentos'
   | 'admin_dashboard'
   | 'admin_expedientes'
   | 'admin_usuarios'
@@ -49,6 +51,7 @@ export default function App() {
       ]
     : [
         { id: 'client_dashboard' as View, label: 'Mis Casos' },
+        { id: 'client_documentos' as View, label: 'Documentos recibidos' },
         { id: 'client_tracking' as View, label: 'Seguimiento' },
         { id: 'client_profile' as View, label: 'Mi Perfil' },
       ]
@@ -94,6 +97,7 @@ export default function App() {
         ) : (
           <>
             {view === 'client_dashboard' && <ClientDashboard />}
+            {view === 'client_documentos' && <DocumentosRecibidos />}
             {view === 'client_tracking' && <ClientCaseTracking />}
             {view === 'client_profile' && <ClientProfile />}
           </>

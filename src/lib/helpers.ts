@@ -31,8 +31,13 @@ export function formatBytes(bytes: number | null): string {
 export function getEstadoColor(estado: string): string {
   const map: Record<string, string> = {
     'Iniciado': 'badge-primary',
+    'Recibido': 'badge-primary',
     'En estudio': 'badge-primary',
+    'En revisión': 'badge-primary',
     'En proceso': 'badge-warning',
+    'En trámite': 'badge-warning',
+    'Pendiente de documentos': 'badge-warning',
+    'Requiere información del cliente': 'badge-warning',
     'Suspendido': 'badge-muted',
     'Finalizado': 'badge-success',
     'Archivado': 'badge-muted',

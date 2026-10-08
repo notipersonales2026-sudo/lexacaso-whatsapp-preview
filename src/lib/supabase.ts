@@ -24,4 +24,8 @@ export const ALLOWED_EXTENSIONS = [
   'application/x-rar-compressed',
   'application/vnd.rar',
   'application/x-zip-compressed',
+  'image/jpeg',
+  'image/png',
 ]
+
+export const ALLOWED_FILE_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar', 'jpg', 'jpeg', 'png']

@@ -3,29 +3,46 @@ import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { formatDate, getEstadoColor } from '../../lib/helpers'
 import type { Expediente } from '../../types'
+import ExponerCaso from './ExponerCaso'
 
 export default function ClientDashboard() {
   const { profile } = useAuth()
   const [expedientes, setExpedientes] = useState<Expediente[]>([])
   const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [successMsg, setSuccessMsg] = useState<string | null>(null)
+
+  async function load() {
+    if (!profile) return
+    const { data, error } = await supabase
+      .from('expedientes')
+      .select('*')
+      .eq('user_id', profile.id)
+      .order('created_at', { ascending: false })
+    if (error) {
+      console.error(error)
+    } else {
+      setExpedientes(data as Expediente[])
+    }
+    setLoading(false)
+  }
 
   useEffect(() => {
-    async function load() {
-      if (!profile) return
-      const { data, error } = await supabase
-        .from('expedientes')
-        .select('*')
-        .eq('user_id', profile.id)
-        .order('created_at', { ascending: false })
-      if (error) {
-        console.error(error)
-      } else {
-        setExpedientes(data as Expediente[])
-      }
-      setLoading(false)
-    }
     load()
   }, [profile])
+
+  if (showForm) {
+    return (
+      <ExponerCaso
+        onCreated={(exp) => {
+          setShowForm(false)
+          setSuccessMsg(`Su caso ha sido registrado con el número ${exp.numero_expediente}.`)
+          load()
+        }}
+        onCancel={() => setShowForm(false)}
+      />
+    )
+  }
 
   if (loading) {
     return (
@@ -46,7 +63,10 @@ export default function ClientDashboard() {
           <h2>Mis Casos</h2>
           <div className="page-subtitle">Bienvenido, {profile?.nombre_completo}</div>
         </div>
+        <button className="btn btn-primary" onClick={() => { setShowForm(true); setSuccessMsg(null) }}>+ Exponer mi caso</button>
       </div>
+
+      {successMsg && <div className="form-success" style={{ marginBottom: 16 }}>{successMsg}</div>}
 
       <div className="dashboard-grid mb-3">
         <div className="stat-card">

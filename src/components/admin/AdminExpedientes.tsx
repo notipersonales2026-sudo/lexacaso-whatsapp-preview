@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { supabase, ALLOWED_EXTENSIONS, MAX_FILE_SIZE } from '../../lib/supabase'
+import { supabase, ALLOWED_EXTENSIONS, ALLOWED_FILE_EXTS, MAX_FILE_SIZE } from '../../lib/supabase'
+import { useAuth } from '../../context/AuthContext'
 import {
   formatDate, formatDateTime, formatBytes, getEstadoColor, getPrioridadColor,
   uploadDocument, downloadDocument, logAuditoria, logHistorial, generateCaseNumber,
@@ -7,11 +8,12 @@ import {
 import type { Expediente, Documento, Observacion, Seguimiento, HistorialEntry, Profile } from '../../types'
 import Modal from '../ui/Modal'
 
-const ESTADOS = ['Iniciado', 'En estudio', 'En proceso', 'Suspendido', 'Finalizado', 'Archivado']
+const ESTADOS = ['Recibido', 'En revisión', 'Pendiente de documentos', 'En trámite', 'Requiere información del cliente', 'Iniciado', 'En estudio', 'En proceso', 'Suspendido', 'Finalizado', 'Archivado']
 const PRIORIDADES = ['Alta', 'Normal', 'Baja']
 const AREAS = ['Civil', 'Penal', 'Laboral', 'Familia', 'Administrativo', 'Comercial']
 
 export default function AdminExpedientes() {
+  const { profile } = useAuth()
   const [expedientes, setExpedientes] = useState<Expediente[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -39,6 +41,10 @@ export default function AdminExpedientes() {
   const [newObs, setNewObs] = useState('')
   const [obsVisible, setObsVisible] = useState(false)
   const [newSeg, setNewSeg] = useState({ tipo_actuacion: 'Notificación', descripcion: '', fecha_actuacion: new Date().toISOString().slice(0, 10), fecha_vencimiento: '' })
+  const [showSendDoc, setShowSendDoc] = useState(false)
+  const [sendDocData, setSendDocData] = useState({ nombre: '', mensaje: '', entregable: true })
+  const [sendDocFiles, setSendDocFiles] = useState<File[]>([])
+  const [sendingDoc, setSendingDoc] = useState(false)
 
   async function loadExpedientes() {
     setLoading(true)
@@ -164,8 +170,7 @@ export default function AdminExpedientes() {
       if (file.size > MAX_FILE_SIZE) { alert(`${file.name} excede el tamaño máximo`); continue }
       if (!ALLOWED_EXTENSIONS.includes(file.type) && file.type !== '') {
         const ext = file.name.split('.').pop()?.toLowerCase()
-        const validExt = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar']
-        if (!ext || !validExt.includes(ext)) { alert(`${file.name}: tipo no permitido`); continue }
+        if (!ext || !ALLOWED_FILE_EXTS.includes(ext)) { alert(`${file.name}: tipo no permitido`); continue }
       }
       setUploadProgress(Math.round((i / files.length) * 100))
       const { ruta, error } = await uploadDocument(file, selectedExp.user_id, selectedExp.id)
@@ -178,6 +183,8 @@ export default function AdminExpedientes() {
         tipo_mime: file.type || null,
         tamano_bytes: file.size,
         visible_cliente: true,
+        remitente_id: profile?.id || null,
+        consultado: false,
       })
     }
     setUploadProgress(100)
@@ -185,6 +192,39 @@ export default function AdminExpedientes() {
     const { data } = await supabase.from('documentos').select('*').eq('expediente_id', selectedExp.id).order('created_at', { ascending: false })
     setDocumentos((data as Documento[]) || [])
     await logAuditoria('subir_documentos', `Documentos subidos al expediente ${selectedExp.numero_expediente}`, 'expediente', selectedExp.id)
+  }
+
+  async function handleSendDoc() {
+    if (!selectedExp || !profile) return
+    if (sendDocFiles.length === 0) { alert('Seleccione al menos un archivo'); return }
+    setSendingDoc(true)
+    for (let i = 0; i < sendDocFiles.length; i++) {
+      const file = sendDocFiles[i]
+      if (file.size > MAX_FILE_SIZE) { alert(`${file.name} excede 50MB`); continue }
+      const ext = file.name.split('.').pop()?.toLowerCase()
+      if (!ext || !ALLOWED_FILE_EXTS.includes(ext)) { alert(`${file.name}: formato no permitido`); continue }
+      const { ruta, error } = await uploadDocument(file, selectedExp.user_id, selectedExp.id)
+      if (error) { alert(`Error subiendo ${file.name}: ${error}`); continue }
+      await supabase.from('documentos').insert({
+        expediente_id: selectedExp.id,
+        user_id: selectedExp.user_id,
+        nombre: sendDocData.nombre || file.name,
+        ruta_storage: ruta,
+        tipo_mime: file.type || null,
+        tamano_bytes: file.size,
+        visible_cliente: sendDocData.entregable,
+        remitente_id: profile.id,
+        mensaje_admin: sendDocData.mensaje || null,
+        consultado: false,
+      })
+    }
+    setSendingDoc(false)
+    setShowSendDoc(false)
+    setSendDocData({ nombre: '', mensaje: '', entregable: true })
+    setSendDocFiles([])
+    const { data } = await supabase.from('documentos').select('*').eq('expediente_id', selectedExp.id).order('created_at', { ascending: false })
+    setDocumentos((data as Documento[]) || [])
+    await logAuditoria('enviar_documento_cliente', `Documento enviado al cliente en ${selectedExp.numero_expediente}`, 'expediente', selectedExp.id)
   }
 
   async function toggleDocVisibility(doc: Documento) {
@@ -384,9 +424,10 @@ export default function AdminExpedientes() {
                 <label className="drop-zone" style={{ marginBottom: 16 }}>
                   <div className="drop-icon">&#128193;</div>
                   <p>{uploading ? `Subiendo... ${uploadProgress}%` : 'Haga clic o arrastre archivos para subir'}</p>
-                  <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>PDF, Word, Excel, ZIP, RAR — máx. 50MB</p>
-                  <input type="file" multiple style={{ display: 'none' }} onChange={(e) => e.target.files && handleUpload(e.target.files)} disabled={uploading} accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.rar" />
+                  <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>PDF, Word, Excel, ZIP, RAR, imágenes — máx. 50MB</p>
+                  <input type="file" multiple style={{ display: 'none' }} onChange={(e) => e.target.files && handleUpload(e.target.files)} disabled={uploading} accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.jpg,.jpeg,.png" />
                 </label>
+                <button className="btn btn-sm btn-primary" style={{ marginBottom: 16 }} onClick={() => setShowSendDoc(true)}>+ Enviar documento al cliente</button>
                 {uploading && <div className="upload-progress mb-2"><div className="upload-progress-bar" style={{ width: `${uploadProgress}%` }} /></div>}
                 {documentos.length === 0 ? (
                   <p className="text-muted text-center" style={{ padding: 16 }}>No hay documentos</p>
@@ -400,7 +441,8 @@ export default function AdminExpedientes() {
                         </div>
                       </div>
                       <div className="file-actions">
-                        <span className={`badge ${doc.visible_cliente ? 'badge-success' : 'badge-muted'}`}>{doc.visible_cliente ? 'Visible' : 'Oculto'}</span>
+                        <span className={`badge ${doc.visible_cliente ? 'badge-success' : 'badge-muted'}`}>{doc.visible_cliente ? 'Entregable' : 'Interno'}</span>
+                        {doc.mensaje_admin && <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4, maxWidth: 300 }}>{doc.mensaje_admin}</div>}
                         <button className="btn btn-sm btn-outline" onClick={() => toggleDocVisibility(doc)}>{doc.visible_cliente ? 'Ocultar' : 'Mostrar'}</button>
                         <button className="btn btn-sm btn-outline" onClick={() => downloadDocument(doc)}>Descargar</button>
                         <button className="btn btn-sm btn-danger" onClick={() => deleteDoc(doc)}>Eliminar</button>
@@ -559,6 +601,35 @@ export default function AdminExpedientes() {
             <button type="submit" className="btn btn-primary">Crear expediente</button>
           </div>
         </form>
+      </Modal>
+
+      {/* Send Document Modal */}
+      <Modal open={showSendDoc} onClose={() => setShowSendDoc(false)} title="Enviar documento al cliente" large>
+        <div>
+          <div className="form-group">
+            <label>Nombre o descripción del documento</label>
+            <input className="form-input" value={sendDocData.nombre} onChange={(e) => setSendDocData({ ...sendDocData, nombre: e.target.value })} placeholder="Ej: Respuesta a derecho de petición" />
+          </div>
+          <div className="form-group">
+            <label>Mensaje para el cliente</label>
+            <textarea className="form-textarea" rows={3} value={sendDocData.mensaje} onChange={(e) => setSendDocData({ ...sendDocData, mensaje: e.target.value })} placeholder="Escriba un mensaje que acompañe el documento" />
+          </div>
+          <div className="form-group">
+            <label>Archivos</label>
+            <input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.jpg,.jpeg,.png" onChange={(e) => e.target.files && setSendDocFiles(Array.from(e.target.files))} />
+            {sendDocFiles.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 13, color: 'var(--color-text-muted)' }}>{sendDocFiles.length} archivo(s) seleccionado(s)</div>
+            )}
+          </div>
+          <div className="form-check" style={{ marginBottom: 16 }}>
+            <input type="checkbox" id="entregable" checked={sendDocData.entregable} onChange={(e) => setSendDocData({ ...sendDocData, entregable: e.target.checked })} />
+            <label htmlFor="entregable">Entregable al cliente (si está desmarcado, el documento será de uso interno y no aparecerá en la bandeja del cliente)</label>
+          </div>
+          <div className="modal-footer" style={{ padding: 0, marginTop: 16 }}>
+            <button className="btn btn-outline" onClick={() => setShowSendDoc(false)}>Cancelar</button>
+            <button className="btn btn-primary" onClick={handleSendDoc} disabled={sendingDoc}>{sendingDoc ? 'Enviando...' : 'Confirmar envío'}</button>
+          </div>
+        </div>
       </Modal>
 
       {/* Edit Modal */}
