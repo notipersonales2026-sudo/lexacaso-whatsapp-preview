@@ -1,14 +1,14 @@
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from './context/AuthContext'
 import { useState } from 'react'
-import AuthPage from './auth/AuthPage'
-import ClientDashboard from './client/ClientDashboard'
-import AdminDashboard from './admin/AdminDashboard'
-import ClientCaseTracking from './client/ClientCaseTracking'
-import ClientProfile from './client/ClientProfile'
-import AdminExpedientes from './admin/AdminExpedientes'
-import AdminUsuarios from './admin/AdminUsuarios'
-import AdminConfig from './admin/AdminConfig'
-import AdminBitacora from './admin/AdminBitacora'
+import AuthPage from './components/auth/AuthPage'
+import ClientDashboard from './components/client/ClientDashboard'
+import AdminDashboard from './components/admin/AdminDashboard'
+import ClientCaseTracking from './components/client/ClientCaseTracking'
+import ClientProfile from './components/client/ClientProfile'
+import AdminExpedientes from './components/admin/AdminExpedientes'
+import AdminUsuarios from './components/admin/AdminUsuarios'
+import AdminConfig from './components/admin/AdminConfig'
+import AdminBitacora from './components/admin/AdminBitacora'
 
 type View =
   | 'client_dashboard'
@@ -85,7 +85,7 @@ export default function App() {
       <main className="app-main">
         {isAdmin ? (
           <>
-            {view === 'admin_dashboard' && <AdminDashboard onNavigate={setView} />}
+            {view === 'admin_dashboard' && <AdminDashboard onNavigate={(v) => setView(v as View)} />}
             {view === 'admin_expedientes' && <AdminExpedientes />}
             {view === 'admin_usuarios' && <AdminUsuarios />}
             {view === 'admin_bitacora' && <AdminBitacora />}

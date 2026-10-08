@@ -1,5 +1,5 @@
-import { supabase, ADMIN_EMAIL, AUTH_VERSION } from '../../lib/supabase'
-import type { Expediente, Documento } from '../../types'
+import { supabase, ADMIN_EMAIL, AUTH_VERSION } from './supabase'
+import type { Documento } from '../types'
 
 export function formatDate(date: string | null): string {
   if (!date) return '—'
