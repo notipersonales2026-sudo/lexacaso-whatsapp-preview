@@ -101,6 +101,31 @@ export default function AdminExpedientes() {
       .single()
     if (error) { alert('Error: ' + error.message); return }
     await logAuditoria('crear_expediente', `Expediente ${numero} creado`, 'expediente', data.id)
+
+    try {
+      const cliente = clientes.find((c) => c.id === formData.user_id)
+      await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-notification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          type: 'case_creation',
+          userEmail: cliente?.email || '',
+          userName: cliente?.nombre_completo || '',
+          caseData: {
+            numero_expediente: numero,
+            titulo: formData.titulo,
+            area_juridica: formData.area_juridica,
+            documentos: [],
+          },
+        }),
+      })
+    } catch (e) {
+      console.error('Notification email failed:', e)
+    }
+
     setShowCreate(false)
     setFormData({ user_id: '', titulo: '', descripcion: '', area_juridica: AREAS[0], estado: 'Iniciado', prioridad: 'Normal' })
     loadExpedientes()

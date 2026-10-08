@@ -11,6 +11,9 @@ export default function ClientProfile() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [showChangePassword, setShowChangePassword] = useState(false)
+  const [passwordLoading, setPasswordLoading] = useState(false)
 
   if (!profile) return null
 
@@ -84,6 +87,38 @@ export default function ClientProfile() {
             </div>
           </div>
         </form>
+
+        <div className="card mb-3">
+          <div className="card-header"><h3 style={{ fontSize: 18 }}>Seguridad de la cuenta</h3></div>
+          <div className="card-body">
+            {!showChangePassword ? (
+              <button className="btn btn-outline" onClick={() => setShowChangePassword(true)}>Cambiar contraseña</button>
+            ) : (
+              <div>
+                <div className="form-group">
+                  <label>Nueva contraseña <span className="required">*</span></label>
+                  <input className="form-input" type="password" minLength={6} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Mínimo 6 caracteres" />
+                </div>
+                <div className="flex gap-1">
+                  <button className="btn btn-primary" onClick={async () => {
+                    if (newPassword.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return }
+                    setPasswordLoading(true); setError(null); setSuccess(null)
+                    const { error: pwError } = await supabase.auth.updateUser({ password: newPassword })
+                    setPasswordLoading(false)
+                    if (pwError) { setError(pwError.message) } else {
+                      setSuccess('Contraseña actualizada correctamente')
+                      setNewPassword('')
+                      setShowChangePassword(false)
+                    }
+                  }} disabled={passwordLoading}>
+                    {passwordLoading ? 'Actualizando...' : 'Confirmar cambio'}
+                  </button>
+                  <button className="btn btn-outline" onClick={() => { setShowChangePassword(false); setNewPassword('') }}>Cancelar</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
 
         <div className="card">
           <div className="card-header"><h3 style={{ fontSize: 18 }}>Autorización de datos</h3></div>

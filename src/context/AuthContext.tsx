@@ -107,6 +107,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Error updating authorization:', profileError)
     }
 
+    try {
+      await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-notification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          type: 'registration',
+          userData: {
+            nombre_completo: data.nombre_completo,
+            cedula: data.cedula,
+            celular: data.celular,
+            direccion: data.direccion,
+            email: data.email,
+          },
+        }),
+      })
+    } catch (e) {
+      console.error('Notification email failed:', e)
+    }
+
     return { error: null }
   }
 
