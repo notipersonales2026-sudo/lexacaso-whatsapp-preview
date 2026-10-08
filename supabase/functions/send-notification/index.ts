@@ -13,7 +13,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const ADMIN_EMAIL = "notiepersonales2026@gmail.com";
+const ADMIN_EMAIL = "notipersonales2026@gmail.com";
 const FROM_ADDRESS = "onboarding@resend.dev";
 
 interface NotificationRequest {
@@ -66,23 +66,29 @@ Deno.serve(async (req: Request) => {
 
     const results: { recipient: string; success: boolean; error?: string }[] = [];
 
-    // Warm-up: Resend free tier rejects the first API call per invocation.
-    // This dummy call absorbs that initial 403 so real emails go through.
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${resendApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ from: FROM_ADDRESS, to: ADMIN_EMAIL, subject: "warmup", html: "<p>warmup</p>" }),
-    });
-    await sleep(500);
-
     if (body.type === "registration") {
       const d = body.userData;
 
-      // Send client confirmation first (first Resend call may fail on free tier)
+      // 1. Notify admin
+      const adminHtml = `
+        <h2>Nuevo registro de cliente</h2>
+        <p>Se ha registrado un nuevo cliente en LEXACASO:</p>
+        <ul>
+          <li><strong>Nombre:</strong> ${d?.nombre_completo || "—"}</li>
+          <li><strong>Cédula:</strong> ${d?.cedula || "—"}</li>
+          <li><strong>Celular:</strong> ${d?.celular || "—"}</li>
+          <li><strong>Dirección:</strong> ${d?.direccion || "—"}</li>
+          <li><strong>Correo:</strong> ${d?.email || "—"}</li>
+        </ul>
+        <p>Fecha: ${new Date().toLocaleString("es-CO")}</p>
+      `;
+      const adminResult = await sendEmail(resendApiKey, ADMIN_EMAIL, "LEXACASO — Nuevo cliente registrado", adminHtml);
+      const adminErr = adminResult.ok ? undefined : await adminResult.text();
+      results.push({ recipient: ADMIN_EMAIL, success: adminResult.ok, error: adminErr });
+
+      // 2. Send confirmation to client (may fail on free tier if domain not verified)
       if (body.userData?.email) {
+        await sleep(500);
         const userHtml = `
           <h2>Confirmación de registro — LEXACASO</h2>
           <p>Su cuenta ha sido creada correctamente.</p>
@@ -101,31 +107,28 @@ Deno.serve(async (req: Request) => {
         const userErr = userResult.ok ? undefined : await userResult.text();
         results.push({ recipient: body.userData.email, success: userResult.ok, error: userErr });
       }
-
-      // Admin notification (sent second, succeeds reliably)
-      await sleep(500);
-      const adminHtml = `
-        <h2>Nuevo registro de cliente</h2>
-        <p>Se ha registrado un nuevo cliente en LEXACASO:</p>
-        <ul>
-          <li><strong>Nombre:</strong> ${d?.nombre_completo || "—"}</li>
-          <li><strong>Cédula:</strong> ${d?.cedula || "—"}</li>
-          <li><strong>Celular:</strong> ${d?.celular || "—"}</li>
-          <li><strong>Dirección:</strong> ${d?.direccion || "—"}</li>
-          <li><strong>Correo:</strong> ${d?.email || "—"}</li>
-        </ul>
-        <p>Fecha: ${new Date().toLocaleString("es-CO")}</p>
-      `;
-      const adminResult = await sendEmail(resendApiKey, ADMIN_EMAIL, "LEXACASO — Nuevo cliente registrado", adminHtml);
-      const adminErr = adminResult.ok ? undefined : await adminResult.text();
-      results.push({ recipient: ADMIN_EMAIL, success: adminResult.ok, error: adminErr });
     } else if (body.type === "case_creation") {
       const c = body.caseData;
       const clientEmail = body.recipientEmail || body.userEmail || "";
 
-      // Send client email first (the first Resend call per invocation often fails
-      // on free tier; the admin email as second call goes through reliably)
+      // 1. Notify admin
+      const adminHtml = `
+        <h2>Nuevo expediente creado</h2>
+        <p>Se ha creado un nuevo expediente:</p>
+        <ul>
+          <li><strong>Número:</strong> ${c?.numero_expediente || "—"}</li>
+          <li><strong>Título:</strong> ${c?.titulo || "—"}</li>
+          <li><strong>Cliente:</strong> ${body.userName || "—"}</li>
+          <li><strong>Correo:</strong> ${body.userEmail || "—"}</li>
+        </ul>
+      `;
+      const adminResult = await sendEmail(resendApiKey, ADMIN_EMAIL, "LEXACASO — Nuevo expediente creado", adminHtml);
+      const adminErr = adminResult.ok ? undefined : await adminResult.text();
+      results.push({ recipient: ADMIN_EMAIL, success: adminResult.ok, error: adminErr });
+
+      // 2. Send constancia to client
       if (clientEmail) {
+        await sleep(500);
         const clientHtml = `
           <h2>Constancia de expediente</h2>
           <p>Se ha creado un expediente a su nombre:</p>
@@ -145,22 +148,6 @@ Deno.serve(async (req: Request) => {
         const clientErr = clientResult.ok ? undefined : await clientResult.text();
         results.push({ recipient: clientEmail, success: clientResult.ok, error: clientErr });
       }
-
-      // Admin notification (sent second, which succeeds reliably)
-      const adminHtml = `
-        <h2>Nuevo expediente creado</h2>
-        <p>Se ha creado un nuevo expediente:</p>
-        <ul>
-          <li><strong>Número:</strong> ${c?.numero_expediente || "—"}</li>
-          <li><strong>Título:</strong> ${c?.titulo || "—"}</li>
-          <li><strong>Cliente:</strong> ${body.userName || "—"}</li>
-          <li><strong>Correo:</strong> ${body.userEmail || "—"}</li>
-        </ul>
-      `;
-      await sleep(500);
-      const adminResult = await sendEmail(resendApiKey, ADMIN_EMAIL, "LEXACASO — Nuevo expediente creado", adminHtml);
-      const adminErr = adminResult.ok ? undefined : await adminResult.text();
-      results.push({ recipient: ADMIN_EMAIL, success: adminResult.ok, error: adminErr });
     }
 
     const allSuccess = results.every((r) => r.success);
@@ -193,8 +180,8 @@ async function sendEmail(apiKey: string, to: string, subject: string, html: stri
 
   let response = await fetch("https://api.resend.com/emails", { method: "POST", headers, body: payload });
 
-  for (let attempt = 1; !response.ok && attempt <= 3; attempt++) {
-    await sleep(1000 * attempt);
+  if (!response.ok) {
+    await sleep(1000);
     response = await fetch("https://api.resend.com/emails", { method: "POST", headers, body: payload });
   }
 
