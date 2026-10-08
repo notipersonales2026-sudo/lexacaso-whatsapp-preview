@@ -11,7 +11,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 })
 
-export const ADMIN_EMAIL = 'notiepersonales2026@gmail.com'
+export const ADMIN_EMAIL = 'notipersonales2026@gmail.com'
 export const AUTH_VERSION = 'v1.0'
 export const MAX_FILE_SIZE = 50 * 1024 * 1024
 export const ALLOWED_EXTENSIONS = [

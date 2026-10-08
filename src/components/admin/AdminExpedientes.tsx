@@ -259,6 +259,31 @@ export default function AdminExpedientes() {
     setShowCreate(true)
   }
 
+  function exportToExcel() {
+    const headers = ['Número', 'Título', 'Cliente', 'Área', 'Estado', 'Prioridad', 'Fecha']
+    const rows = filtered.map((exp) => [
+      exp.numero_expediente || '',
+      exp.titulo,
+      exp.profiles?.nombre_completo || '',
+      exp.area_juridica || '',
+      exp.estado,
+      exp.prioridad,
+      formatDate(exp.created_at),
+    ])
+    const csv = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `expedientes_${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   if (loading) return <div className="text-center mt-3"><div className="spinner" /></div>
 
   return (
@@ -268,7 +293,10 @@ export default function AdminExpedientes() {
           <h2>Gestión de expedientes</h2>
           <div className="page-subtitle">Administre todos los casos jurídicos</div>
         </div>
-        <button className="btn btn-primary" onClick={openCreate}>+ Nuevo expediente</button>
+        <div className="flex gap-1">
+          <button className="btn btn-outline" onClick={exportToExcel} disabled={filtered.length === 0}>Exportar CSV</button>
+          <button className="btn btn-primary" onClick={openCreate}>+ Nuevo expediente</button>
+        </div>
       </div>
 
       <div className="card mb-3">

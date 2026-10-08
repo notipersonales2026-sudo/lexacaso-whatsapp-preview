@@ -35,15 +35,26 @@ export default function AdminUsuarios() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     if (!selected) return
+
+    if (editData.rol !== selected.rol) {
+      const { error: roleError } = await supabase.rpc('set_user_role', {
+        target_user_id: selected.id,
+        new_role: editData.rol,
+      })
+      if (roleError) { alert('Error al cambiar rol: ' + roleError.message); return }
+      await logAuditoria('cambiar_rol', `Rol de ${selected.email} cambiado a ${editData.rol}`, 'perfil', selected.id)
+    }
+
     const { error } = await supabase.from('profiles').update({
       nombre_completo: editData.nombre_completo,
       cedula: editData.cedula,
       celular: editData.celular,
       direccion: editData.direccion,
-      rol: editData.rol,
     }).eq('id', selected.id)
     if (error) { alert('Error: ' + error.message); return }
-    await logAuditoria('editar_usuario', `Usuario ${selected.email} actualizado`, 'perfil', selected.id)
+    if (editData.rol === selected.rol) {
+      await logAuditoria('editar_usuario', `Usuario ${selected.email} actualizado`, 'perfil', selected.id)
+    }
     setSelected(null)
     load()
   }
