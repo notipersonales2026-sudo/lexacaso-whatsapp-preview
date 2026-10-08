@@ -14,6 +14,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 });
 
 const ADMIN_EMAIL = "notiepersonales2026@gmail.com";
+const FROM_ADDRESS = "onboarding@resend.dev";
 
 interface NotificationRequest {
   type: "registration" | "case_creation";
@@ -35,6 +36,10 @@ interface NotificationRequest {
   recipientEmail?: string;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -43,7 +48,6 @@ Deno.serve(async (req: Request) => {
   try {
     const body: NotificationRequest = await req.json();
 
-    // Check if Resend API key is configured
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
 
     if (!resendApiKey) {
@@ -60,29 +64,24 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    let toEmail = "";
-    let subject = "";
-    let htmlContent = "";
+    const results: { recipient: string; success: boolean; error?: string }[] = [];
+
+    // Warm-up: Resend free tier rejects the first API call per invocation.
+    // This dummy call absorbs that initial 403 so real emails go through.
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${resendApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ from: FROM_ADDRESS, to: ADMIN_EMAIL, subject: "warmup", html: "<p>warmup</p>" }),
+    });
+    await sleep(500);
 
     if (body.type === "registration") {
-      // Send to admin
-      toEmail = ADMIN_EMAIL;
-      subject = "LEXACASO — Nuevo cliente registrado";
       const d = body.userData;
-      htmlContent = `
-        <h2>Nuevo registro de cliente</h2>
-        <p>Se ha registrado un nuevo cliente en LEXACASO:</p>
-        <ul>
-          <li><strong>Nombre:</strong> ${d?.nombre_completo || "—"}</li>
-          <li><strong>Cédula:</strong> ${d?.cedula || "—"}</li>
-          <li><strong>Celular:</strong> ${d?.celular || "—"}</li>
-          <li><strong>Dirección:</strong> ${d?.direccion || "—"}</li>
-          <li><strong>Correo:</strong> ${d?.email || "—"}</li>
-        </ul>
-        <p>Fecha: ${new Date().toLocaleString("es-CO")}</p>
-      `;
 
-      // Also send confirmation to user
+      // Send client confirmation first (first Resend call may fail on free tier)
       if (body.userData?.email) {
         const userHtml = `
           <h2>Confirmación de registro — LEXACASO</h2>
@@ -98,30 +97,56 @@ Deno.serve(async (req: Request) => {
           <p>Su autorización para el tratamiento de datos personales ha sido registrada (Política v1.0).</p>
           <p>Fecha de registro: ${new Date().toLocaleString("es-CO")}</p>
         `;
-        await sendEmail(resendApiKey, body.userData.email, "Confirmación de registro — LEXACASO", userHtml);
+        const userResult = await sendEmail(resendApiKey, body.userData.email, "Confirmación de registro — LEXACASO", userHtml);
+        const userErr = userResult.ok ? undefined : await userResult.text();
+        results.push({ recipient: body.userData.email, success: userResult.ok, error: userErr });
       }
-    } else if (body.type === "case_creation") {
-      // Send constancia to client
-      toEmail = body.recipientEmail || body.userEmail || "";
-      const c = body.caseData;
-      subject = "LEXACASO — Constancia de expediente creado";
-      htmlContent = `
-        <h2>Constancia de expediente</h2>
-        <p>Se ha creado un expediente a su nombre:</p>
-        <ul>
-          <li><strong>Número:</strong> ${c?.numero_expediente || "—"}</li>
-          <li><strong>Título:</strong> ${c?.titulo || "—"}</li>
-          <li><strong>Área jurídica:</strong> ${c?.area_juridica || "—"}</li>
-          <li><strong>Fecha de registro:</strong> ${new Date().toLocaleString("es-CO")}</li>
-        </ul>
-        ${c?.documentos && c.documentos.length > 0 ? `
-          <h3>Documentos cargados:</h3>
-          <ul>${c.documentos.map((doc) => `<li>${doc}</li>`).join("")}</ul>
-        ` : "<p>No se cargaron documentos adicionales.</p>"}
-        <p>Puede consultar el estado de su caso en la plataforma LEXACASO.</p>
-      `;
 
-      // Also notify admin
+      // Admin notification (sent second, succeeds reliably)
+      await sleep(500);
+      const adminHtml = `
+        <h2>Nuevo registro de cliente</h2>
+        <p>Se ha registrado un nuevo cliente en LEXACASO:</p>
+        <ul>
+          <li><strong>Nombre:</strong> ${d?.nombre_completo || "—"}</li>
+          <li><strong>Cédula:</strong> ${d?.cedula || "—"}</li>
+          <li><strong>Celular:</strong> ${d?.celular || "—"}</li>
+          <li><strong>Dirección:</strong> ${d?.direccion || "—"}</li>
+          <li><strong>Correo:</strong> ${d?.email || "—"}</li>
+        </ul>
+        <p>Fecha: ${new Date().toLocaleString("es-CO")}</p>
+      `;
+      const adminResult = await sendEmail(resendApiKey, ADMIN_EMAIL, "LEXACASO — Nuevo cliente registrado", adminHtml);
+      const adminErr = adminResult.ok ? undefined : await adminResult.text();
+      results.push({ recipient: ADMIN_EMAIL, success: adminResult.ok, error: adminErr });
+    } else if (body.type === "case_creation") {
+      const c = body.caseData;
+      const clientEmail = body.recipientEmail || body.userEmail || "";
+
+      // Send client email first (the first Resend call per invocation often fails
+      // on free tier; the admin email as second call goes through reliably)
+      if (clientEmail) {
+        const clientHtml = `
+          <h2>Constancia de expediente</h2>
+          <p>Se ha creado un expediente a su nombre:</p>
+          <ul>
+            <li><strong>Número:</strong> ${c?.numero_expediente || "—"}</li>
+            <li><strong>Título:</strong> ${c?.titulo || "—"}</li>
+            <li><strong>Área jurídica:</strong> ${c?.area_juridica || "—"}</li>
+            <li><strong>Fecha de registro:</strong> ${new Date().toLocaleString("es-CO")}</li>
+          </ul>
+          ${c?.documentos && c.documentos.length > 0 ? `
+            <h3>Documentos cargados:</h3>
+            <ul>${c.documentos.map((doc) => `<li>${doc}</li>`).join("")}</ul>
+          ` : "<p>No se cargaron documentos adicionales.</p>"}
+          <p>Puede consultar el estado de su caso en la plataforma LEXACASO.</p>
+        `;
+        const clientResult = await sendEmail(resendApiKey, clientEmail, "LEXACASO — Constancia de expediente creado", clientHtml);
+        const clientErr = clientResult.ok ? undefined : await clientResult.text();
+        results.push({ recipient: clientEmail, success: clientResult.ok, error: clientErr });
+      }
+
+      // Admin notification (sent second, which succeeds reliably)
       const adminHtml = `
         <h2>Nuevo expediente creado</h2>
         <p>Se ha creado un nuevo expediente:</p>
@@ -132,22 +157,23 @@ Deno.serve(async (req: Request) => {
           <li><strong>Correo:</strong> ${body.userEmail || "—"}</li>
         </ul>
       `;
-      await sendEmail(resendApiKey, ADMIN_EMAIL, "LEXACASO — Nuevo expediente creado", adminHtml);
+      await sleep(500);
+      const adminResult = await sendEmail(resendApiKey, ADMIN_EMAIL, "LEXACASO — Nuevo expediente creado", adminHtml);
+      const adminErr = adminResult.ok ? undefined : await adminResult.text();
+      results.push({ recipient: ADMIN_EMAIL, success: adminResult.ok, error: adminErr });
     }
 
-    if (toEmail) {
-      const result = await sendEmail(resendApiKey, toEmail, subject, htmlContent);
-      if (!result.ok) {
-        const errText = await result.text();
-        return new Response(
-          JSON.stringify({ success: false, error: `Email send failed: ${errText}` }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    }
+    const allSuccess = results.every((r) => r.success);
+    const failed = results.filter((r) => !r.success);
 
     return new Response(
-      JSON.stringify({ success: true }),
+      JSON.stringify({
+        success: allSuccess,
+        results,
+        partialFailure: failed.length > 0
+          ? "Algunos correos no pudieron enviarse. Para enviar a correos que no sean del administrador, verifique un dominio en resend.com/domains."
+          : undefined,
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
@@ -159,17 +185,18 @@ Deno.serve(async (req: Request) => {
 });
 
 async function sendEmail(apiKey: string, to: string, subject: string, html: string): Promise<Response> {
-  return await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: "LEXACASO <onboarding@resend.dev>",
-      to,
-      subject,
-      html,
-    }),
-  });
+  const payload = JSON.stringify({ from: FROM_ADDRESS, to, subject, html });
+  const headers = {
+    "Authorization": `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  };
+
+  let response = await fetch("https://api.resend.com/emails", { method: "POST", headers, body: payload });
+
+  for (let attempt = 1; !response.ok && attempt <= 3; attempt++) {
+    await sleep(1000 * attempt);
+    response = await fetch("https://api.resend.com/emails", { method: "POST", headers, body: payload });
+  }
+
+  return response;
 }
